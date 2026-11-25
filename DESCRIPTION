@@ -1,0 +1,29 @@
+Package: bodycon
+Title: Estimation of Animal Body Condition Indices
+Version: 0.2.1
+Authors@R: c(
+    person("Julia", "Riley", , "jriley@mta.ca", role = c("aut", "cre", "cph"), comment = c(ORCID = "0000-0001-7691-6910")),
+    person("Fonti", "Kar", role = c("aut", "cph"), comment = c(ORCID = "0000-0002-2760-3974"))
+    )
+Description: Calculates animal body condition indices from measurements of body size and mass. Methods include residual-based ordinary least squares (OLS), the scaled mass index (SMI) using standardised major axis (SMA) regression, and SMI using robust SMA regression. Visualisation tools support comparison of indices and assessment of the suitability of these approaches. See Krebs and Singleton (1993) <doi:10.1071/ZO9930317>, Peig and Green (2009) <doi:10.1111/j.1600-0706.2009.17643.x>, and Warton et al. (2012) <doi:10.1111/j.2041-210X.2011.00153.x>.
+License: MIT + file LICENSE
+URL: https://rbglabs.github.io/bodycon/,
+        https://github.com/RBGLabs/bodycon
+BugReports: https://github.com/RBGLabs/bodycon/issues
+Encoding: UTF-8
+Imports: dplyr, ggnewscale, ggplot2, rlang, scales, smatr, stats,
+        tibble
+Suggests: knitr, readr, rmarkdown, testthat (>= 3.0.0), usethis, vdiffr
+VignetteBuilder: knitr
+Depends: R (>= 4.1.0)
+LazyData: true
+Config/testthat/edition: 3
+Config/roxygen2/version: 8.1.0
+NeedsCompilation: no
+Packaged: 2026-11-03 19:34:52 UTC; jriley
+Author: Julia Riley [aut, cre, cph] (ORCID:
+    <https://orcid.org/0000-0001-7691-6910>),
+  Fonti Kar [aut, cph] (ORCID: <https://orcid.org/0000-0002-2760-3974>)
+Maintainer: Julia Riley <jriley@mta.ca>
+Repository: CRAN
+Date/Publication: 2026-11-25 11:50:10 UTC

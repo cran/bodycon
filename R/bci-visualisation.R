@@ -1,0 +1,333 @@
+#' Visualise and Compare Body Condition Index Methods
+#'
+#' @description
+#' Visualize and compare body condition index (BCI) estimation methods by
+#' plotting raw, observed body size–weight data alongside reference relationships implied by the selected BCI method(s). 
+#' The function applies the same body condition index methods used by `bci()` to provide a 
+#' consistent visual comparison of the resulting relationships.
+#'
+#' @param data tibble/dataframe containing a standard body size variable and the corresponding 
+#' weight for each individual of one animal species
+#' @param body_size name of standard body size variable (e.g., snout-vent-length of reptiles, tarsus length of birds, length from the snout to the base of the tail for mammals, etc.)
+#' @param weight name of weight variable (e.g., mass of the animal)
+#' @param method method used to estimate body condition, either residuals from an OLS regression (`"resid_ols"`), the scaled mass index using classical standardized major axis (SMA) regression (`"smi"`), or the scaled mass index using robust SMA regression (`"smi_rob"`). One or more methods can be supplied.
+#' @param relation an argument to specify whether or not the relationship between weight and body size variables are assumed to be allometric (`"allometric"`) or linear (`"linear"`). If allometric, both variables are log-transformed. Default is `"allometric"`. Biologically speaking, most animals exhibit an allometric relationship between their weight and body size measurements.
+#' @param group Optional column in \code{data} specifying grouping of raw points
+#'   (e.g., sex, population). Default is \code{NULL} (all points treated as one group) and plotted in light grey.
+#' @param group_colours Optional named vector specifying colours for each group of raw points.
+#'   Names must match the values in the \code{group} column.
+#'   If \code{NULL}, default ggplot2 colours are used.
+#' @param method_colours Optional named vector specifying colours for the BCI methods.
+#'   Names must match the method labels used in the plot: `"OLS regression (linear)"`,
+#'   `"OLS regression (allometric)"`, `"SMI"`, `"SMI (robust)"`. Defaults are dark grey, yellow, and blue.
+#' @param x_lab Label for the x-axis. The default is `"Body Size"`.
+#' @param y_lab Label for the y-axis. The default is `"Weight"`.
+#' @param group_lab Label for the grouping variable, if provided, enclosed in quotations. The default is `"Group"`.
+#' @param method_lab Label for the method of calculating body condition enclosed in quotations. The default is `"Method"`.
+#' @param legend Logical indicating whether to display the legend. Default is \code{TRUE}.
+#' @param return_predictions Either `TRUE` or `FALSE` to indicate whether or not you would like the predictions calculated to plot the lines returned to you, or not. The default is `FALSE`.
+#'
+#' @return A `ggplot` object. If `return_predictions = TRUE`, a list containing
+#'   the plot, the data used to generate the plot, and the predicted values
+#'   used to draw the reference relationships is returned.
+#'
+#' @details
+#' This function is intended for exploratory and comparative visualization
+#' of body condition estimation methods. When multiple BCI methods are shown,
+#' reference relationships are coloured by method, and points can optionally be split
+#' and coloured by a grouping variable.
+#'
+#' @examples
+#' data("gartersnake")
+#'
+#' # Basic plot with all methods
+#' plot_bci(
+#'   gartersnake,
+#'   svl_mm,
+#'   mass_g,
+#'   method = c("resid_ols", "smi", "smi_rob")
+#'  )
+#'
+#' # Plot only BCI using the SMI method estimated with an robust regression
+#' # and group your raw data by sex
+#' plot_bci(
+#'   gartersnake,
+#'   svl_mm,
+#'   mass_g,
+#'   method = c("smi_rob"),
+#'   group = sex
+#' )
+#'
+#' # Plot BCI using two SMI methods &
+#' # have custom colours for groups and methods
+#' plot_bci(
+#'   gartersnake,
+#'   svl_mm,
+#'   mass_g,
+#'   method = c("smi", "smi_rob"),
+#'   group = sex,
+#'   group_colours = c("M" = "darkorange2", "F" = "mediumpurple"),
+#'   method_colours = c("OLS regression (allometric)" = "black", "SMI (robust)" = "navy")
+#' )
+#' 
+#' # Plot BCI using the SMI method estimated with an robust regression
+#' # and hide the legend
+#' plot_bci(
+#'   gartersnake,
+#'   svl_mm,
+#'   mass_g,
+#'   method = c("smi"),
+#'   legend = FALSE
+#' )
+#' 
+#' @importFrom ggplot2 ggplot aes geom_point geom_line theme_classic labs
+#'   scale_colour_manual theme
+#'
+#' @importFrom stats predict
+#'
+#' @export
+plot_bci <- function(data, body_size, weight,
+                     method = c("resid_ols", "smi", "smi_rob"),
+                     relation = "allometric",
+                     group = NULL,
+                     group_colours = NULL,
+                     method_colours = NULL,
+                     x_lab = "Body Size",
+                     y_lab = "Weight",
+                     group_lab = "Group",
+                     method_lab = "Method",
+                     legend = TRUE,
+                     return_predictions = FALSE) {
+  
+  method <- match.arg(
+    method,
+    c("resid_ols", "smi", "smi_rob"),
+    several.ok = TRUE
+  )
+  
+  relation <- match.arg(
+    relation,
+    c("allometric", "linear"),
+    several.ok = TRUE
+  )
+  
+  # ---- SMI warning ----
+  if (any(method %in% c("smi", "smi_rob")) && "linear" %in% relation) {
+    warning(
+      paste(
+        "SMI methods always assume allometric (log-log) scaling.",
+        "The relation = 'linear' option only affects the OLS residual method and is ignored for SMI."
+      ),
+      call. = FALSE
+    )
+  }
+  
+  #----Generating Data----
+  x <- dplyr::pull(data, {{ body_size }})
+  y <- dplyr::pull(data, {{ weight }})
+  
+  plot_data <- data.frame(
+    body_size = x,
+    weight = y
+  )
+  
+  #----Defining grouping function----
+  group_var <- rlang::enquo(group)
+  
+  if (rlang::quo_is_null(group_var)) {
+    plot_data$.group <- NA_character_
+  } else {
+    plot_data$.group <- dplyr::pull(data, !!group_var)
+  }
+  
+  plot_data$.group <- as.factor(plot_data$.group)
+  
+  has_group <- !all(is.na(plot_data$.group))
+  
+  #----Defining default colours for group----
+  if (is.null(group_colours) && has_group) {
+    group_colours <- scales::hue_pal()(length(unique(plot_data$.group)))
+    names(group_colours) <- levels(plot_data$.group)
+  }
+  
+  #----Defining default colours for method---
+  if (is.null(method_colours)) {
+    method_colours <- c(
+      "OLS regression (linear)" = "grey50",
+      "OLS regression (allometric)" = "black",
+      "SMI" = "gold2",
+      "SMI (robust)" = "steelblue"
+    )
+  }
+  
+  #----Calculating reference relationships---
+  pred_lines <- list()
+  
+  body_seq <- seq(
+    min(plot_data$body_size, na.rm = TRUE),
+    max(plot_data$body_size, na.rm = TRUE),
+    length.out = 100
+  )
+  
+  method_labels <- c(
+    resid_ols_allometric = "OLS regression (allometric)",
+    resid_ols_linear = "OLS regression (linear)",
+    smi = "SMI",
+    smi_rob = "SMI (robust)"
+  )
+  
+  pred_grid <- data.frame(body_size = body_seq)
+  
+  ## OLS regression residuals
+  if ("resid_ols" %in% method) {
+    
+    if ("allometric" %in% relation) {
+      
+      pred_lines$resid_ols_allometric <- tibble::tibble(
+        body_size = body_seq,
+        pred_wgt = exp(predict(
+          lm(log(weight) ~ log(body_size), data = plot_data),
+          newdata = data.frame(body_size = body_seq)
+        )),
+        method = "OLS regression (allometric)"
+      )
+    }
+    
+    if ("linear" %in% relation) {
+      
+      pred_lines$resid_ols_linear <- tibble::tibble(
+        body_size = body_seq,
+        pred_wgt = predict(
+          lm(weight ~ body_size, data = plot_data),
+          newdata = data.frame(body_size = body_seq)
+        ),
+        method = "OLS regression (linear)"
+      )
+    }
+  }
+  
+  ## SMI
+  if ("smi" %in% method) {
+    
+    x0 <- mean(plot_data$body_size, na.rm = TRUE)
+    
+    b_sma <- coef(
+      smatr::sma(log(weight) ~ log(body_size), 
+                 method = "SMA",
+                 robust = FALSE,
+                 data = plot_data)
+    )[2]
+    
+    smi_values <- plot_data$weight *
+      (x0 / plot_data$body_size)^b_sma
+    
+    mean_smi <- mean(smi_values, na.rm = TRUE)
+    
+    pred_lines$smi <- dplyr::mutate(
+      pred_grid,
+      pred_wgt = mean_smi * (body_size / x0)^b_sma,
+      method = method_labels["smi"]
+    )
+  }
+  
+  ## SMI using robust regression
+  if ("smi_rob" %in% method) {
+    
+    x0 <- mean(plot_data$body_size, na.rm = TRUE)
+    
+    b_sma_rob <- coef(
+      smatr::sma(log(weight) ~ log(body_size),
+                 data = plot_data,
+                 method = "SMA",
+                 robust = TRUE)
+    )[2]
+    
+    smi_values <- plot_data$weight *
+      (x0 / plot_data$body_size)^b_sma_rob
+    
+    mean_smi <- mean(smi_values, na.rm = TRUE)
+    
+    pred_lines$smi_rob <- dplyr::mutate(
+      pred_grid,
+      pred_wgt = mean_smi * (body_size / x0)^b_sma_rob,
+      method = method_labels["smi_rob"]
+    )
+  }
+  
+  pred_df <- dplyr::bind_rows(pred_lines)
+  
+  #----Plotting---
+  ## Base plot
+  p <- ggplot2::ggplot(plot_data, ggplot2::aes(body_size, weight))
+  
+  ## Points (group colour scale and legend)
+  if (has_group) {
+    
+    if (is.null(group_colours)) {
+      group_colours <- scales::hue_pal()(length(unique(plot_data$.group)))
+      names(group_colours) <- levels(plot_data$.group)
+    }
+    
+    p <- p +
+      ggplot2::geom_point(
+        ggplot2::aes(colour = .group),
+        alpha = 0.7,
+        size = 2
+      ) +
+      ggplot2::scale_colour_manual(
+        name = group_lab,
+        values = group_colours
+      )
+    
+  } else {
+    
+    p <- p +
+      ggplot2::geom_point(
+        colour = "grey80",
+        alpha = 0.7,
+        size = 2
+      )
+  }
+  
+  ## Reset the colour scale
+  p <- p + ggnewscale::new_scale_colour()
+  
+  ## Lines (method colour scale and legend)
+  p <- p +
+    ggplot2::geom_line(
+      data = pred_df,
+      ggplot2::aes(body_size, pred_wgt, colour = method),
+      linewidth = 1.2
+    ) +
+    ggplot2::scale_colour_manual(
+      name = method_lab,
+      values = method_colours
+    )
+  
+  ## Theme for the plot
+  p <- p +
+    ggplot2::theme_classic() +
+    ggplot2::labs(
+      x = x_lab,
+      y = y_lab
+    )
+  
+  # Adding legend option
+  if (!legend) {
+    p <- p + ggplot2::theme(legend.position = "none")
+  }
+  
+  # Defining outputs
+  if (return_predictions) {
+    
+    return(list(
+      plot = p,
+      predictions = pred_df,
+      data = plot_data
+    ))
+    
+  } else {
+    
+    return(p)
+  }
+}
